@@ -14180,19 +14180,38 @@ function bubbleFitContent(pop, tb, baseW, preview) {
     }
     return high
   }
+  // 手动轮（normal/random/custom）内锁定第 1 泡量到的外框尺寸：切内容只重排文字，不再让框大小跟着变。
+  // preview（自定义框预览）和 cost/alert/wait 系统泡泡保持原行为。
+  var lockSize = !preview && bubbleRoundOn && bubbleScene &&
+    (bubbleScene.kind === 'normal' || bubbleScene.kind === 'random' || bubbleScene.kind === 'custom')
+  var cached = lockSize ? bubbleRoundSize : null
+  // 根宽度变化（窗口缩放）⇒ 缓存的像素尺寸作废，本轮重新量一次。
+  if (cached && cached.baseW !== baseW) cached = null
   var w, h
-  var grow = 1
-  // 扩展后普通文字可能重排，再校正一次。数字断点已按整体椭圆轮廓确定。
-  for (var pass = 0; pass < 2; pass++) {
-    grow = requiredGrow(grow)
-    w = baseW * grow
-    h = baseH * grow
+  if (cached) {
+    // 命中缓存：直接套用本轮首泡尺寸，跳过 requiredGrow 扩框循环；下方换行与视口位置调整照常执行。
+    w = cached.w
+    h = cached.h
     pop.style.width = w + 'px'
     pop.style.height = h + 'px'
-    if (!preview) {
-      pop.style.left = (baseW - w) + 'px'
-      pop.style.top = (baseH - h) + 'px'
+    pop.style.left = (baseW - w) + 'px'
+    pop.style.top = (baseH - h) + 'px'
+  } else {
+    var grow = 1
+    // 扩展后普通文字可能重排，再校正一次。数字断点已按整体椭圆轮廓确定。
+    for (var pass = 0; pass < 2; pass++) {
+      grow = requiredGrow(grow)
+      w = baseW * grow
+      h = baseH * grow
+      pop.style.width = w + 'px'
+      pop.style.height = h + 'px'
+      if (!preview) {
+        pop.style.left = (baseW - w) + 'px'
+        pop.style.top = (baseH - h) + 'px'
+      }
     }
+    // 首次数值测量完成 ⇒ 记下本轮外框尺寸，供后续气泡直接复用。
+    if (lockSize) bubbleRoundSize = { baseW: baseW, w: w, h: h }
   }
   if (!preview) {
     // 允许边框覆盖界面；只调整位置，让文字尽量留在视口里，不限制放大倍数。
@@ -14664,6 +14683,8 @@ var bubbleScene = null // { kind:'normal'|'random'|'cost', ttlMs }
 var bubbleSeq = bubbleDefaultQueue() // 默认序列 = 与开发者线上生效一致(首次=余额,再次=随机语句);有配置后由 applyBubbleCfgSeq 覆盖
 var bubbleSeqIdx = 0 // 下一项下标(手动轮内推进)
 var bubbleRoundOn = false // 手动轮是否进行中(被消耗顶掉时保留, 结束后归零)
+// 同一手动轮沿用首泡尺寸；关闭或开始新一轮时清空。
+var bubbleRoundSize = null
 var bubbleCfg = null // 服务端自定义配置 {v:1, items:[...], lib:[...], tapAdvance:bool}; null=未配置
 var bubbleLib = [] // 可选模块库(当前会话编辑用,随配置保存):[{id,name,module}]
 // v727「点按角色推进泡泡队列」（仅「自定义泡泡」菜单可设，存在泡泡配置里）：
@@ -17601,6 +17622,7 @@ function bubbleCloseVisual() {
   // 但"整泡关闭"（hideBubble/hideCostBubble/hideWaitBubble…）不走渲染 ⇒ 不复位就会残留成 true，
   // 之后 showWaitBubble 会误判"已经在显示等待泡泡"（历史上正是这类不同步把等待泡泡卡死的）。
   waitShown = false
+  bubbleRoundSize = null
   try { bubbleBox.classList.remove('dshwv-pop-open') } catch (err) {}
   try { textBox.style.transition = ''; textBox.style.opacity = '' } catch (err) {}
   try { hintEl.style.transition = ''; hintEl.style.opacity = '' } catch (err) {}
@@ -17746,6 +17768,7 @@ function bubblePickChoiceStep(step) {
 function bubbleShowSeqNext() {
   var step = bubbleSeq[bubbleSeqIdx]
   if (!step) { hideBubble(); return }
+  if (bubbleSeqIdx === 0) bubbleRoundSize = null
   bubbleSeqIdx++
   var item = bubbleIsChoice(step) ? bubblePickChoiceStep(step) : step
   if (!item) { hideBubble(); return }
